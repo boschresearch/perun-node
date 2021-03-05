@@ -111,7 +111,6 @@ func Test_Integ_Role(t *testing.T) {
 				Def:  pchannel.NoApp(),
 				Data: pchannel.NoData(),
 			}
-			// nolint: govet	// err does not shadow, using a new var to prevent data race.
 			_, err := alice.OpenCh(ctx, openingBalInfo, app, challengeDurSecs)
 			require.NoErrorf(t, err, "alice opening channel with bob")
 		}()
@@ -148,7 +147,6 @@ func Test_Integ_Role(t *testing.T) {
 				Def:  pchannel.NoApp(),
 				Data: pchannel.NoData(),
 			}
-			// nolint: govet	// err does not shadow, using a new var to prevent data race.
 			_, err := bob.OpenCh(ctx, openingBalInfo, app, challengeDurSecs)
 			require.Error(t, err, "bob sending channel proposal should be rejected by alice")
 			t.Log(err)

@@ -321,6 +321,13 @@ const (
 )
 
 type (
+	// ErrV2InfoRejectedByPeer represents the fields in the additional info for
+	// ErrRejectedByPeer.
+	ErrV2InfoRejectedByPeer struct {
+		PeerAlias string
+		Reason    string
+	}
+
 	// ErrV2InfoResourceNotFound represents the fields in the additional info for
 	// ErrResourceNotFound.
 	ErrV2InfoResourceNotFound struct {
@@ -381,7 +388,7 @@ type SessionAPI interface {
 	ID() string
 	AddPeerID(PeerID) APIErrorV2
 	GetPeerID(alias string) (PeerID, APIErrorV2)
-	OpenCh(context.Context, BalInfo, App, uint64) (ChInfo, error)
+	OpenCh(context.Context, BalInfo, App, uint64) (ChInfo, APIErrorV2)
 	GetChsInfo() []ChInfo
 	SubChProposals(ChProposalNotifier) APIErrorV2
 	UnsubChProposals() APIErrorV2

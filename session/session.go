@@ -62,12 +62,17 @@ func (e Error) Error() string {
 
 // Definition of error constants for this package.
 const (
-	ErrSessionClosed    Error = "operation not allowed on a closed session"
-	ErrUnknownPeerAlias Error = "unknown peer alias"
-	ErrSubAlreadyExists Error = "subscription already exists"
-	ErrNoActiveSub      Error = "no active subscription"
-	ErrChClosed         Error = "Channel is closed"
-	ErrUnknownChID      Error = "No channel corresponding to the specified ID"
+	ErrSessionClosed          Error = "operation not allowed on a closed session"
+	ErrUnknownPeerAlias       Error = "unknown peer alias(es)"
+	ErrRepeatedPeerAlias      Error = "repeated peer alias(es)"
+	ErrNoEntryForSelf         Error = "no entry for self in peer alias(es)"
+	ErrUnknownCurrency        Error = "unknown currency"
+	ErrInvalidAmountInBalance Error = "invalid amount in balance"
+	ErrPeerRejectedProposal   Error = "channel proposal rejected by peer"
+	ErrSubAlreadyExists       Error = "subscription already exists"
+	ErrNoActiveSub            Error = "no active subscription"
+	ErrChClosed               Error = "channel is closed"
+	ErrUnknownChID            Error = "no channel corresponding to the specified ID"
 )
 
 type (
@@ -302,54 +307,63 @@ func (s *Session) GetPeerID(alias string) (perun.PeerID, perun.APIErrorV2) {
 
 // OpenCh implements sessionAPI.OpenCh.
 func (s *Session) OpenCh(pctx context.Context, openingBalInfo perun.BalInfo, app perun.App, challengeDurSecs uint64) (
-	perun.ChInfo, error) {
-	s.Debugf("\nReceived request:session.OpenCh Params %+v,%+v,%+v", openingBalInfo, app, challengeDurSecs)
-	// Session is locked only when adding the channel to session.
+	perun.ChInfo, perun.APIErrorV2) {
+	s.WithField("method", "OpenCh").Infof(
+		"\nReceived request:session.OpenCh Params %+v,%+v,%+v", openingBalInfo, app, challengeDurSecs)
+
+	// Session lock is not acquired at the beging, but only when adding the channel to session.
 
 	if !s.isOpen {
-		return perun.ChInfo{}, perun.ErrSessionClosed
+		apiErr := perun.NewAPIErrV2FailedPreCondition(ErrSessionClosed.Error())
+		s.WithFields(perun.APIErrV2AsMap("OpenCh", apiErr)).Error(apiErr.Message())
+		return perun.ChInfo{}, apiErr
 	}
 
 	sanitizeBalInfo(openingBalInfo)
-	parts, err := retrievePartIDs(openingBalInfo.Parts, s.idProvider)
-	if err != nil {
-		s.Error(err, "retrieving channel participant IDs using session ID Provider")
-		return perun.ChInfo{}, perun.GetAPIError(err)
+	parts, apiErr := retrievePartIDs(openingBalInfo.Parts, s.idProvider)
+	if apiErr != nil {
+		s.WithFields(perun.APIErrV2AsMap("OpenCh", apiErr)).Error(apiErr.Message())
+		return perun.ChInfo{}, apiErr
 	}
 	registerParts(parts, s.chClient)
 
-	allocations, err := makeAllocation(openingBalInfo, s.chAsset)
-	if err != nil {
-		s.Error(err, "making allocations")
-		return perun.ChInfo{}, perun.GetAPIError(err)
+	allocations, apiErr := makeAllocation(openingBalInfo, s.chAsset)
+	if apiErr != nil {
+		s.WithFields(perun.APIErrV2AsMap("OpenCh", apiErr)).Error(apiErr.Message())
+		return perun.ChInfo{}, apiErr
 	}
 
-	proposal, err := pclient.NewLedgerChannelProposal(
-		challengeDurSecs,
-		s.user.OffChainAddr,
-		allocations,
-		makeOffChainAddrs(parts),
-		pclient.WithApp(app.Def, app.Data),
-		pclient.WithRandomNonce())
+	proposal, err := pclient.NewLedgerChannelProposal(challengeDurSecs, s.user.OffChainAddr, allocations,
+		makeOffChainAddrs(parts), pclient.WithApp(app.Def, app.Data), pclient.WithRandomNonce())
 	if err != nil {
 		err = errors.WithMessage(err, "constructing channel proposal")
-		return perun.ChInfo{}, perun.GetAPIError(err)
+		return perun.ChInfo{}, perun.NewAPIErrV2UnknownInternal(err)
 	}
 	ctx, cancel := context.WithTimeout(pctx, s.timeoutCfg.proposeCh(challengeDurSecs))
 	defer cancel()
 	pch, err := s.chClient.ProposeChannel(ctx, proposal)
 	if err != nil {
-		s.Error(err)
+		var apiErr perun.APIErrorV2
+		switch {
 		// TODO: (mano) Use errors.Is here once a sentinel error value is defined in the SDK.
-		if strings.Contains(err.Error(), "channel proposal rejected") {
-			err = perun.ErrPeerRejected
+		// For now, the error message is assumed to be in the format: "channel proposal rejected: <reason>"
+		case strings.Contains(err.Error(), "channel proposal rejected"):
+			reason := strings.Split(err.Error(), ": ")[1]
+			message := ErrPeerRejectedProposal.Error()
+			// Once openingBalInfo is sanitized, the peer alias is expected to be at index 1.
+			apiErr = perun.NewAPIErrV2RejectedByPeer(openingBalInfo.Parts[1], reason, message)
+		default:
+			err = errors.WithMessage(err, "proposing channel")
+			apiErr = perun.NewAPIErrV2UnknownInternal(err)
 		}
-		return perun.ChInfo{}, perun.GetAPIError(err)
+		s.WithFields(perun.APIErrV2AsMap("OpenCh", apiErr)).Error(apiErr.Message())
+		return perun.ChInfo{}, apiErr
 	}
 
 	ch := newCh(pch, openingBalInfo.Currency, openingBalInfo.Parts, s.timeoutCfg, challengeDurSecs)
 
 	s.addCh(ch)
+	s.WithFields(log.Fields{"method": "OpenCh", "channelID": ch.ID()}).Info("Channel opened successfully")
 	return ch.GetChInfo(), nil
 }
 
@@ -377,7 +391,7 @@ func sanitizeBalInfo(balInfo perun.BalInfo) {
 
 // retrievePartIDs retrieves the peer IDs corresponding to the aliases from the ID provider.
 // The order of entries for parts list will be same as that of aliases. i.e aliases[i] = parts[i].Alias.
-func retrievePartIDs(aliases []string, idProvider perun.IDReader) ([]perun.PeerID, error) {
+func retrievePartIDs(aliases []string, idProvider perun.IDReader) ([]perun.PeerID, perun.APIErrorV2) {
 	knownParts := make(map[string]perun.PeerID, len(aliases))
 	partIDs := make([]perun.PeerID, len(aliases))
 	missingParts := make([]string, 0, len(aliases))
@@ -400,13 +414,20 @@ func retrievePartIDs(aliases []string, idProvider perun.IDReader) ([]perun.PeerI
 	}
 
 	if len(missingParts) != 0 {
-		return nil, errors.New(fmt.Sprintf("No peer IDs found in ID Provider for the following alias(es): %v", missingParts))
+		err := ErrUnknownPeerAlias
+		return nil, perun.NewAPIErrV2ResourceNotFound("peer alias", strings.Join(missingParts, ","), err.Error())
 	}
 	if len(repeatedParts) != 0 {
-		return nil, errors.New(fmt.Sprintf("Repeated entries in aliases: %v", repeatedParts))
+		err := ErrRepeatedPeerAlias
+		requirement := "each entry in peer aliases should be unique"
+		return nil, perun.NewAPIErrV2InvalidArgument(
+			"peer alias", strings.Join(repeatedParts, ","), requirement, err.Error())
 	}
 	if !foundOwnAlias {
-		return nil, errors.New("No entry for self found in aliases")
+		err := ErrNoEntryForSelf
+		requirement := "peer aliases must contain an entry for self"
+		return nil, perun.NewAPIErrV2InvalidArgument(
+			"peer alias", strings.Join(aliases, ","), requirement, err.Error())
 	}
 
 	return partIDs, nil
@@ -433,9 +454,11 @@ func makeOffChainAddrs(partIDs []perun.PeerID) []pwire.Address {
 // makeAllocation makes an allocation using the BalanceInfo and the chAsset.
 // Order of amounts in the balance is same as the order of Aliases in the Balance Info.
 // It errors if any of the amounts cannot be parsed using the interpreter corresponding to the currency.
-func makeAllocation(balInfo perun.BalInfo, chAsset pchannel.Asset) (*pchannel.Allocation, error) {
+func makeAllocation(balInfo perun.BalInfo, chAsset pchannel.Asset) (*pchannel.Allocation, perun.APIErrorV2) {
 	if !currency.IsSupported(balInfo.Currency) {
-		return nil, perun.ErrUnsupportedCurrency
+		requirement := fmt.Sprintf("use one of the following currencies: %v", currency.ETH)
+		err := ErrUnknownCurrency
+		return nil, perun.NewAPIErrV2InvalidArgument("currency", balInfo.Currency, requirement, err.Error())
 	}
 
 	balance := make([]*big.Int, len(balInfo.Bal))
@@ -443,7 +466,8 @@ func makeAllocation(balInfo perun.BalInfo, chAsset pchannel.Asset) (*pchannel.Al
 	for i := range balInfo.Bal {
 		balance[i], err = currency.NewParser(balInfo.Currency).Parse(balInfo.Bal[i])
 		if err != nil {
-			return nil, errors.WithMessagef(err, "Parsing amount: %v", balInfo.Bal[i])
+			err = errors.Wrap(ErrInvalidAmountInBalance, err.Error())
+			return nil, perun.NewAPIErrV2InvalidArgument("amount", balInfo.Bal[i], "", err.Error())
 		}
 	}
 
