@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -37,6 +36,7 @@ import (
 
 const (
 	aliceAlias, bobAlias = "alice", "bob"
+	apiAlias             = "api"
 	nodeConfigFile       = "node.yaml"
 	sessionConfigFile    = "session.yaml"
 	keystoreDir          = "keystore"
@@ -85,7 +85,7 @@ func defineGenerateCmdFlags() {
 	generateCmd.Flags().Bool(onlySessionF, false, "generate only session configuration artifacts for both alice & bob.")
 }
 
-func generate(cmd *cobra.Command, args []string) {
+func generate(cmd *cobra.Command, _ []string) {
 	genNodeConfig, err := cmd.Flags().GetBool(onlyNodeF)
 	if err != nil {
 		panic("unknown flag " + onlyNodeF + "\n")
@@ -114,7 +114,8 @@ func generate(cmd *cobra.Command, args []string) {
 		if err = generateSessionConfig(); err != nil {
 			fmt.Printf("Error generating session configuration artifacts: %v\n", err)
 		} else {
-			fmt.Printf("Generated session configuration artifacts: %s, %s directories\n", aliceAlias, bobAlias)
+			fmt.Printf("Generated session configuration artifacts: %s, %s, %s directories\n",
+				aliceAlias, bobAlias, apiAlias)
 		}
 	}
 	if err != nil {
@@ -147,58 +148,62 @@ func generateNodeConfig() error {
 // & off-chain). To use this configuration, start the node from same directory containing the session config artifacts
 // directory and pass the path "alice/session.yaml" and "bob/session.yaml" for alice and bob respectively.
 func generateSessionConfig() error {
-	if isPresent, dirName := isAnyDirPresent(aliceAlias, bobAlias); isPresent {
+	if isPresent, dirName := isAnyDirPresent(aliceAlias, bobAlias, apiAlias); isPresent {
 		return errors.New("dir exists - " + dirName)
 	}
-	if err := makeDirs(aliceAlias, bobAlias); err != nil {
+	err := makeDirs(aliceAlias, bobAlias, apiAlias)
+	if err != nil {
 		return err
 	}
+
+	const count = 3
+	aliases := [count]string{aliceAlias, bobAlias, apiAlias}
+	cfgs := [count]session.Config{}
+	peers := [count][]perun.PeerID{}
+	providersFile := [count]string{}
+	cfgFile := [count]string{}
 
 	// Generate session config, the seed ethereumtest.RandSeedForTestAccs generates two accounts which were funded
 	// when starting the ganache cli node with the command documented in help message.
-	prng := rand.New(rand.NewSource(ethereumtest.RandSeedForTestAccs)) //nolint: gosec		// okay to use weak rand in tests.
-	aliceCfg, err := sessiontest.NewConfig(prng)
-	if err != nil {
-		return err
-	}
-	aliceCfg.User.Alias = aliceAlias
-	bobCfg, err := sessiontest.NewConfig(prng)
-	if err != nil {
-		return err
-	}
-	bobCfg.User.Alias = bobAlias
-
-	// Create IDProvider file.
-	aliceIDProviderFile, err := idprovidertest.NewIDProvider(peerID(bobCfg.User))
-	if err != nil {
-		return err
-	}
-	bobIDProviderFile, err := idprovidertest.NewIDProvider(peerID(aliceCfg.User))
-	if err != nil {
-		return err
+	prng := rand.New(rand.NewSource(ethereumtest.RandSeedForTestAccs)) //nolint:gosec		// okay to use weak rand in tests.
+	for i := 0; i < count; i++ {
+		cfgs[i], err = sessiontest.NewConfig(prng)
+		if err != nil {
+			return err
+		}
+		cfgs[i].User.Alias = aliases[i]
 	}
 
-	// Create session config file.
-	aliceCfgFile, err := sessiontest.NewConfigFile(updatedConfigCopy(aliceCfg))
-	if err != nil {
-		return err
+	for i := 0; i < count; i++ { // Everyone except the self is a peer.
+		peers[i] = make([]perun.PeerID, 0, count-1)
+		for j := 0; j < count; j++ {
+			if i != j {
+				peers[i] = append(peers[i], peerID(cfgs[j].User))
+			}
+		}
 	}
-	bobCfgFile, err := sessiontest.NewConfigFile(updatedConfigCopy(bobCfg))
-	if err != nil {
-		return err
+
+	for i := 0; i < count; i++ {
+		providersFile[i], err = idprovidertest.NewIDProvider(peers[i]...)
+		if err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < count; i++ {
+		cfgFile[i], err = sessiontest.NewConfigFile(updatedConfigCopy(cfgs[i]))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Move the artifacts to currenct directory.
-	filesToMove := map[string]string{
-		aliceCfgFile:                             filepath.Join(aliceAlias, sessionConfigFile),
-		aliceIDProviderFile:                      filepath.Join(aliceAlias, idProviderFile),
-		aliceCfg.DatabaseDir:                     filepath.Join(aliceAlias, databaseDir),
-		aliceCfg.User.OnChainWallet.KeystorePath: filepath.Join(aliceAlias, keystoreDir),
-
-		bobCfgFile:                             filepath.Join(bobAlias, sessionConfigFile),
-		bobCfg.DatabaseDir:                     filepath.Join(bobAlias, databaseDir),
-		bobIDProviderFile:                      filepath.Join(bobAlias, idProviderFile),
-		bobCfg.User.OnChainWallet.KeystorePath: filepath.Join(bobAlias, keystoreDir),
+	filesToMove := make(map[string]string)
+	for i := 0; i < count; i++ {
+		filesToMove[cfgFile[i]] = filepath.Join(aliases[i], sessionConfigFile)
+		filesToMove[providersFile[i]] = filepath.Join(aliases[i], idProviderFile)
+		filesToMove[cfgs[i].DatabaseDir] = filepath.Join(aliases[i], databaseDir)
+		filesToMove[cfgs[i].User.OnChainWallet.KeystorePath] = filepath.Join(aliases[i], keystoreDir)
 	}
 	return moveFiles(filesToMove)
 }
@@ -269,7 +274,7 @@ func handleDir(srcDir string, destDir string) error {
 	if err := os.Mkdir(destDir, dirFileMode); err != nil {
 		errs = append(errs, fmt.Sprintf("creating dir - %s: %v", destDir, err))
 	}
-	files, err := ioutil.ReadDir(srcDir)
+	files, err := os.ReadDir(srcDir)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("reading dir - %s: %v", srcDir, err))
 	}

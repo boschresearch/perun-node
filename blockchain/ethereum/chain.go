@@ -57,7 +57,8 @@ func NewChainBackend(url string,
 	chainConnTimeout,
 	onChainTxTimeout time.Duration,
 	cred perun.Credential) (
-	perun.ChainBackend, error) {
+	perun.ChainBackend, error,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), chainConnTimeout)
 	defer cancel()
 	ethereumBackend, err := ethclient.DialContext(ctx, url)
@@ -75,7 +76,7 @@ func NewChainBackend(url string,
 	if err != nil {
 		return nil, err
 	}
-	tr := pkeystore.NewTransactor(*ksWallet, types.NewEIP155Signer(big.NewInt(int64(chainID))))
+	tr := pkeystore.NewTransactor(*ksWallet, types.LatestSignerForChainID(big.NewInt(int64(chainID))))
 	cb := pethchannel.NewContractBackend(ethereumBackend, tr, txFinalityDepth)
 	return &internal.ChainBackend{Cb: &cb, TxTimeout: onChainTxTimeout}, nil
 }
@@ -86,8 +87,9 @@ func NewChainBackend(url string,
 // The function signature uses only types defined in the root package of this
 // project and types from std lib.  This enables the function to be loaded as
 // symbol without importing this package when it is compiled as plugin.
-func NewROChainBackend(url string, chainID int, chainConnTimeout time.Duration) (
-	perun.ROChainBackend, error) {
+func NewROChainBackend(url string, chainConnTimeout time.Duration) (
+	perun.ROChainBackend, error,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), chainConnTimeout)
 	defer cancel()
 	ethereumBackend, err := ethclient.DialContext(ctx, url)
@@ -101,7 +103,8 @@ func NewROChainBackend(url string, chainID int, chainConnTimeout time.Duration) 
 
 // BalanceAt reads the on-chain balance of the given address.
 func BalanceAt(url string, chainConnTimeout, onChainTxTimeout time.Duration, addr pwallet.Address) (
-	*big.Int, error) {
+	*big.Int, error,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), chainConnTimeout)
 	defer cancel()
 	ethereumBackend, err := ethclient.DialContext(ctx, url)

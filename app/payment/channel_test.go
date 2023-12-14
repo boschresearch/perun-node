@@ -29,12 +29,11 @@ import (
 	"github.com/hyperledger-labs/perun-node/currency"
 	"github.com/hyperledger-labs/perun-node/internal/mocks"
 	"github.com/hyperledger-labs/perun-node/peruntest"
-	"github.com/hyperledger-labs/perun-node/session"
 )
 
 func Test_SendPayChUpdate(t *testing.T) {
 	currencies := currency.NewRegistry()
-	//nolint: errcheck	// Safe to ignore the error, as it is first register after init.
+	//nolint:errcheck	// Safe to ignore the error, as it is first register after init.
 	ethCurrency, _ := currencies.Register(currency.ETHSymbol, currency.ETHMaxDecimals)
 
 	// Returns a mock with API calls set up for currency and parts.
@@ -90,7 +89,7 @@ func Test_SendPayChUpdate(t *testing.T) {
 		}
 		_, gotErr := payment.SendPayChUpdate(context.Background(), chAPI, payments)
 		peruntest.AssertAPIError(t, gotErr, perun.ClientError, perun.ErrInvalidArgument, payment.ErrInvalidAmount.Error())
-		peruntest.AssertErrInfoInvalidArgument(t, gotErr.AddInfo(), session.ArgNameAmount, invalidAmount)
+		peruntest.AssertErrInfoInvalidArgument(t, gotErr.AddInfo(), perun.ArgNameAmount, invalidAmount)
 	})
 
 	t.Run("error_InvalidPayee", func(t *testing.T) {
@@ -269,7 +268,7 @@ func Test_ClosePayCh(t *testing.T) {
 	})
 }
 
-// nolint: unparam
+//nolint:unparam
 func makePayment(currency, payee, amount string) payment.Payment {
 	return payment.Payment{
 		Currency: currency,

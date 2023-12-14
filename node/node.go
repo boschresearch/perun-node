@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	psync "perun.network/go-perun/pkg/sync"
+	psync "polycry.pt/poly-go/sync"
 
 	"github.com/hyperledger-labs/perun-node"
 	"github.com/hyperledger-labs/perun-node/blockchain"
@@ -51,7 +51,7 @@ func (e Error) Error() string {
 // This should be called only once, subsequent calls after the first non error
 // response will return an error.
 func New(cfg perun.NodeConfig) (perun.NodeAPI, error) {
-	chain, err := ethereum.NewROChainBackend(cfg.ChainURL, cfg.ChainID, cfg.ChainConnTimeout)
+	chain, err := ethereum.NewROChainBackend(cfg.ChainURL, cfg.ChainConnTimeout)
 	if err != nil {
 		return nil, errors.WithMessage(err, "connecting to blockchain")
 	}
@@ -85,7 +85,8 @@ func New(cfg perun.NodeConfig) (perun.NodeAPI, error) {
 }
 
 func initContractRegistry(chain perun.ROChainBackend, adjudicator, assetETH string) (
-	perun.ContractRegistry, error) {
+	perun.ContractRegistry, error,
+) {
 	walletBackend := ethereum.NewWalletBackend()
 	adjudicatorAddr, err := walletBackend.ParseAddr(adjudicator)
 	if err != nil {
@@ -105,7 +106,8 @@ func initContractRegistry(chain perun.ROChainBackend, adjudicator, assetETH stri
 }
 
 func registerAssetERC20s(assetERC20s map[string]string,
-	contractRegistry perun.ContractRegistry, currencyRegistry perun.CurrencyRegistry) error {
+	contractRegistry perun.ContractRegistry, currencyRegistry perun.CurrencyRegistry,
+) error {
 	walletBackend := ethereum.NewWalletBackend()
 	for tokenERC20, assetERC20 := range assetERC20s {
 		tokenERC20Addr, err := walletBackend.ParseAddr(tokenERC20)
@@ -170,11 +172,16 @@ func (n *node) OpenSession(configFile string) (string, []perun.ChInfo, perun.API
 	sessionConfig, err := session.ParseConfig(configFile)
 	if err != nil {
 		err = errors.WithMessage(err, "parsing config")
-		return "", nil, perun.NewAPIErrInvalidArgument(err, session.ArgNameConfigFile, configFile)
+		return "", nil, perun.NewAPIErrInvalidArgument(err, perun.ArgNameConfigFile, configFile)
 	}
+
+	if sessionConfig.FundingType == "local" {
+		// AssetETH is set during contract registry init and will always be
+		// found, other assets will be added later.
+		sessionConfig.AssetETH = n.contractRegistry.AssetETH()
+	}
+	// Set adjudicator anyways until remote adjudicator is implemented.
 	sessionConfig.Adjudicator = n.contractRegistry.Adjudicator()
-	// AssetETH is set during contract registry init and will always be found.
-	sessionConfig.AssetETH = n.contractRegistry.AssetETH()
 	sess, apiErr := session.New(sessionConfig, n.currencyRegistry, n.contractRegistry)
 	if apiErr != nil {
 		return "", nil, apiErr
@@ -210,13 +217,13 @@ func (n *node) RegisterCurrency(tokenERC20Addr, assetERC20Addr string) (symbol s
 	walletBackend := ethereum.NewWalletBackend()
 	assetERC20, err := walletBackend.ParseAddr(assetERC20Addr)
 	if err != nil {
-		apiErr = perun.NewAPIErrInvalidArgument(err, session.ArgNameAsset, assetERC20Addr)
+		apiErr = perun.NewAPIErrInvalidArgument(err, perun.ArgNameAsset, assetERC20Addr)
 		return "", apiErr
 	}
 
 	tokenERC20, err := walletBackend.ParseAddr(tokenERC20Addr)
 	if err != nil {
-		apiErr = perun.NewAPIErrInvalidArgument(err, session.ArgNameToken, tokenERC20Addr)
+		apiErr = perun.NewAPIErrInvalidArgument(err, perun.ArgNameToken, tokenERC20Addr)
 		return "", apiErr
 	}
 
@@ -226,7 +233,7 @@ func (n *node) RegisterCurrency(tokenERC20Addr, assetERC20Addr string) (symbol s
 		invalidContractError := blockchain.InvalidContractError{}
 		switch {
 		case errors.As(err, &assetERC20RegisteredError):
-			apiErr = perun.NewAPIErrResourceExists(session.ResTypeCurrency, assetERC20RegisteredError.Symbol)
+			apiErr = perun.NewAPIErrResourceExists(perun.ResTypeCurrency, assetERC20RegisteredError.Symbol)
 			return "", apiErr
 		case errors.As(err, &invalidContractError):
 			contractErrorInfo := perun.ContractErrInfo{
@@ -247,7 +254,7 @@ func (n *node) RegisterCurrency(tokenERC20Addr, assetERC20Addr string) (symbol s
 		// Ideally, code should not reach here, because currency registry is
 		// only updated after contracts registry, this condition would have
 		// already been detected when registering to contract registry.
-		return "", perun.NewAPIErrResourceExists(session.ResTypeCurrency, symbol)
+		return "", perun.NewAPIErrResourceExists(perun.ResTypeCurrency, symbol)
 	}
 	return symbol, nil
 }
@@ -272,7 +279,7 @@ func (n *node) GetSession(sessionID string) (perun.SessionAPI, perun.APIError) {
 	sess, ok := n.sessions[sessionID]
 	n.Unlock()
 	if !ok {
-		apiErr := perun.NewAPIErrResourceNotFound(session.ResTypeSession, sessionID)
+		apiErr := perun.NewAPIErrResourceNotFound(perun.ResTypeSession, sessionID)
 		n.WithFields(perun.APIErrAsMap("GetSession (internal)", apiErr)).Error(apiErr.Message())
 		return nil, apiErr
 	}

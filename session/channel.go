@@ -25,8 +25,8 @@ import (
 
 	pchannel "perun.network/go-perun/channel"
 	pclient "perun.network/go-perun/client"
-	psync "perun.network/go-perun/pkg/sync"
 	pwire "perun.network/go-perun/wire"
+	psync "polycry.pt/poly-go/sync"
 
 	"github.com/pkg/errors"
 
@@ -85,7 +85,7 @@ type (
 		Phase() pchannel.Phase
 		State() *pchannel.State
 		OnUpdate(cb func(from, to *pchannel.State))
-		UpdateBy(ctx context.Context, update func(*pchannel.State) error) error
+		Update(ctx context.Context, update func(*pchannel.State)) error
 		Settle(ctx context.Context, isSecondary bool) error
 		Watch(pclient.AdjudicatorEventHandler) error
 	}
@@ -112,7 +112,8 @@ type (
 // newCh initializes  a channel instance using the passed pchannel (controller)
 // and other channel parameters.
 func newCh(pch PChannel, chainURL string, currencies []perun.Currency, parts []string, timeoutCfg timeoutConfig,
-	challengeDurSecs uint64) *Channel {
+	challengeDurSecs uint64,
+) *Channel {
 	ch := &Channel{
 		params: params{
 			id:               fmt.Sprintf("%x", pch.ID()),
@@ -301,13 +302,13 @@ func (ch *Channel) SendChUpdate(pctx context.Context, updater perun.StateUpdater
 	}()
 
 	if ch.status == closed {
-		apiErr = perun.NewAPIErrFailedPreCondition(ErrChClosed)
+		apiErr = perun.NewAPIErrFailedPreCondition(perun.ErrChClosed)
 		return ch.getChInfo(), apiErr
 	}
 
 	ctx, cancel := context.WithTimeout(pctx, ch.timeoutCfg.chUpdate())
 	defer cancel()
-	err := ch.pch.UpdateBy(ctx, updater)
+	err := ch.pch.Update(ctx, updater)
 	if err != nil {
 		apiErr = ch.handleSendChUpdateError(errors.WithMessage(err, "sending channel update"))
 		return perun.ChInfo{}, apiErr
@@ -331,7 +332,8 @@ func (ch *Channel) handleSendChUpdateError(err error) perun.APIError {
 // centrazlied handler identifies the channel and then invokes this function to
 // process the update.
 func (ch *Channel) HandleUpdate(
-	currState *pchannel.State, chUpdate pclient.ChannelUpdate, responder ChUpdateResponder) {
+	currState *pchannel.State, chUpdate pclient.ChannelUpdate, responder ChUpdateResponder,
+) {
 	ch.Lock()
 	defer ch.Unlock()
 
@@ -370,7 +372,8 @@ func (ch *Channel) sendChUpdateNotif(notif perun.ChUpdateNotif) {
 }
 
 func (ch *Channel) makeChUpdateNotif(
-	currChInfo perun.ChInfo, proposedState *pchannel.State, expiry int64) perun.ChUpdateNotif {
+	currChInfo perun.ChInfo, proposedState *pchannel.State, expiry int64,
+) perun.ChUpdateNotif {
 	var chUpdateType perun.ChUpdateType
 	switch proposedState.IsFinal {
 	case true:
@@ -411,13 +414,13 @@ func (ch *Channel) SubChUpdates(notifier perun.ChUpdateNotifier) perun.APIError 
 	defer ch.Unlock()
 
 	if ch.status == closed {
-		apiErr := perun.NewAPIErrFailedPreCondition(ErrChClosed)
+		apiErr := perun.NewAPIErrFailedPreCondition(perun.ErrChClosed)
 		ch.WithFields(perun.APIErrAsMap("SubChUpdates", apiErr)).Error(apiErr.Message())
 		return apiErr
 	}
 
 	if ch.chUpdateNotifier != nil {
-		apiErr := perun.NewAPIErrResourceExists(ResTypeUpdateSub, ch.ID())
+		apiErr := perun.NewAPIErrResourceExists(perun.ResTypeUpdateSub, ch.ID())
 		ch.WithFields(perun.APIErrAsMap("SubChUpdates", apiErr)).Error(apiErr.Message())
 		return apiErr
 	}
@@ -442,13 +445,13 @@ func (ch *Channel) UnsubChUpdates() perun.APIError {
 	defer ch.Unlock()
 
 	if ch.status == closed {
-		apiErr := perun.NewAPIErrFailedPreCondition(ErrChClosed)
+		apiErr := perun.NewAPIErrFailedPreCondition(perun.ErrChClosed)
 		ch.WithFields(perun.APIErrAsMap("UnsubChUpdates", apiErr)).Error(apiErr.Message())
 		return apiErr
 	}
 
 	if ch.chUpdateNotifier == nil {
-		apiErr := perun.NewAPIErrResourceNotFound(ResTypeUpdateSub, ch.ID())
+		apiErr := perun.NewAPIErrResourceNotFound(perun.ResTypeUpdateSub, ch.ID())
 		ch.WithFields(perun.APIErrAsMap("UnsubChUpdates", apiErr)).Error(apiErr.Message())
 		return apiErr
 	}
@@ -470,7 +473,8 @@ func (ch *Channel) unsubChUpdates() {
 // - ErrUserResponseTimedOut when user responded after time out expired.
 // - ErrUnknownInternal.
 func (ch *Channel) RespondChUpdate(pctx context.Context, updateID string, accept bool) (
-	perun.ChInfo, perun.APIError) {
+	perun.ChInfo, perun.APIError,
+) {
 	ch.WithField("method", "RespondChUpdate").Infof("\nReceived request with params %+v,%+v", updateID, accept)
 	ch.Lock()
 	defer ch.Unlock()
@@ -483,13 +487,13 @@ func (ch *Channel) RespondChUpdate(pctx context.Context, updateID string, accept
 	}()
 
 	if ch.status == closed {
-		apiErr = perun.NewAPIErrFailedPreCondition(ErrChClosed)
+		apiErr = perun.NewAPIErrFailedPreCondition(perun.ErrChClosed)
 		return ch.getChInfo(), apiErr
 	}
 
 	entry, ok := ch.chUpdateResponders[updateID]
 	if !ok {
-		apiErr = perun.NewAPIErrResourceNotFound(ResTypeUpdate, updateID)
+		apiErr = perun.NewAPIErrResourceNotFound(perun.ResTypeUpdate, updateID)
 		return ch.getChInfo(), apiErr
 	}
 	delete(ch.chUpdateResponders, updateID)
@@ -637,7 +641,7 @@ func (ch *Channel) Close(pctx context.Context) (perun.ChInfo, perun.APIError) {
 	}()
 
 	if ch.status == closed {
-		apiErr = perun.NewAPIErrFailedPreCondition(ErrChClosed)
+		apiErr = perun.NewAPIErrFailedPreCondition(perun.ErrChClosed)
 		return ch.getChInfo(), apiErr
 	}
 
@@ -662,13 +666,12 @@ func (ch *Channel) Close(pctx context.Context) (perun.ChInfo, perun.APIError) {
 // If this fails, calling Settle consequently will close the channel non-collaboratively, by registering
 // the state on-chain and waiting for challenge duration to expire.
 func (ch *Channel) finalize(pctx context.Context) {
-	chFinalizer := func(state *pchannel.State) error {
+	chFinalizer := func(state *pchannel.State) {
 		state.IsFinal = true
-		return nil
 	}
 	ctx, cancel := context.WithTimeout(pctx, ch.timeoutCfg.chUpdate())
 	defer cancel()
-	err := ch.pch.UpdateBy(ctx, chFinalizer)
+	err := ch.pch.Update(ctx, chFinalizer)
 	if err != nil {
 		apiErr := ch.handleSendChUpdateError(err)
 		ch.WithFields(perun.APIErrAsMap("ChClose", apiErr)).Error(apiErr.Message())

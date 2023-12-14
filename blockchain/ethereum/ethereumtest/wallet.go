@@ -17,7 +17,6 @@
 package ethereumtest
 
 import (
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
@@ -69,14 +68,14 @@ func NewWalletSetupT(t *testing.T, rng *rand.Rand, n uint) *WalletSetup {
 func NewWalletSetup(rng *rand.Rand, n uint) (*WalletSetup, error) {
 	wb := NewTestWalletBackend()
 
-	ksPath, err := ioutil.TempDir("", "perun-node-test-keystore-*")
+	ksPath, err := os.MkdirTemp("", "perun-node-test-keystore-*")
 	if err != nil {
 		return nil, errors.Wrap(err, "creating temp directory for keystore")
 	}
 	ks := keystore.NewKeyStore(ksPath, internal.WeakScryptN, internal.WeakScryptP)
 	w, err := pkswallet.NewWallet(ks, "")
 	if err != nil {
-		os.RemoveAll(ksPath) // nolint: errcheck
+		os.RemoveAll(ksPath) //nolint:errcheck
 		return nil, errors.Wrap(err, "creating creating wallet")
 	}
 

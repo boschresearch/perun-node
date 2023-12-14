@@ -77,7 +77,7 @@ For a tutorial on using perun-node with `perunnodecli`, see the
 on the project documentation website.
 
 For a tutorial on using perun-node with `perunnodetui`, see
-[this section](cmd/perunnodetui/Readme.md). A talk on overview of perun,
+[this section](cmd/perunnodetui/README.md). A talk on overview of perun,
 including a hands-on demo of using the perunnode with `perunnodetui` can be
 found [here](https://youtu.be/sASYSJm3QKw?t=916).
 
@@ -85,7 +85,7 @@ found [here](https://youtu.be/sASYSJm3QKw?t=916).
 
 Install the following pre-requisites.
 
-    1. Go (v1.14 or later).
+    1. Go (v1.19 or later).
     2. ganache-cli (v6.9.1 or later).
 
 Clone the project and sync the dependencies:
@@ -114,7 +114,7 @@ Run the linter and tests from the project root directory:
 golangci-lint run ./...
 
 # Test
-go test -tags=integration -count=1 ./...
+go test -tags=integration -count=1 -p=1 ./...
 
 # Build perunnode and perunnodecli binaries
 make

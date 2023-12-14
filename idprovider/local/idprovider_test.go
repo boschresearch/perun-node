@@ -19,7 +19,6 @@ package local_test
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -134,7 +133,7 @@ Bob:
     comm_address: 127.0.0.1:5750
     comm_type: tcpip`
 
-	tempFile, err := ioutil.TempFile("", "")
+	tempFile, err := os.CreateTemp("", "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err = os.Remove(tempFile.Name()); err != nil {
@@ -147,7 +146,7 @@ Bob:
 	return tempFile.Name()
 }
 
-// nolint:dupl  // False positive. ReadByAlias is diff from ReadByOffChainAddr.
+//nolint:dupl  // False positive. ReadByAlias is diff from ReadByOffChainAddr.
 func Test_YAML_ReadByAlias(t *testing.T) {
 	idProviderFile := idprovidertest.NewIDProviderT(t, peer1, peer2)
 	c, err := local.NewIDprovider(idProviderFile, walletBackend)
@@ -165,7 +164,7 @@ func Test_YAML_ReadByAlias(t *testing.T) {
 	})
 }
 
-// nolint:dupl  // False positive. ReadByOffChainAddr is diff from ReadByAlias.
+//nolint:dupl  // False positive. ReadByOffChainAddr is diff from ReadByAlias.
 func Test_YAML_ReadByOffChainAddr(t *testing.T) {
 	idProviderFile := idprovidertest.NewIDProviderT(t, peer1, peer2)
 	c, err := local.NewIDprovider(idProviderFile, walletBackend)
@@ -284,9 +283,9 @@ func Test_YAML_UpdateStorage(t *testing.T) {
 }
 
 func compareFileContent(t *testing.T, file1, file2 string) bool {
-	f1, err := ioutil.ReadFile(file1)
+	f1, err := os.ReadFile(file1)
 	require.NoError(t, err)
-	f2, err := ioutil.ReadFile(file2)
+	f2, err := os.ReadFile(file2)
 	require.NoError(t, err)
 
 	return bytes.Equal(f1, f2)

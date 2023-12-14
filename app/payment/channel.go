@@ -25,7 +25,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/hyperledger-labs/perun-node"
-	"github.com/hyperledger-labs/perun-node/session"
 )
 
 // Error type is used to define error constants for this package.
@@ -87,25 +86,24 @@ func SendPayChUpdate(pctx context.Context, ch perun.ChAPI, payments []Payment) (
 	for i := range payments {
 		idxOfCurrencyInBals, currency, found := ch.Currency(payments[i].Currency)
 		if !found {
-			return PayChInfo{}, perun.NewAPIErrResourceNotFound(session.ResTypeCurrency, payments[i].Currency)
+			return PayChInfo{}, perun.NewAPIErrResourceNotFound(perun.ResTypeCurrency, payments[i].Currency)
 		}
 		parsedAmount, err := currency.Parse(payments[i].Amount)
 		if err != nil {
 			err = errors.WithMessage(err, ErrInvalidAmount.Error())
-			return PayChInfo{}, perun.NewAPIErrInvalidArgument(err, session.ArgNameAmount, payments[i].Amount)
+			return PayChInfo{}, perun.NewAPIErrInvalidArgument(err, perun.ArgNameAmount, payments[i].Amount)
 		}
 		payerIdx, payeeIdx, err := getPayerPayeeIdx(ch.Parts(), payments[i].Payee)
 		if err != nil {
-			return PayChInfo{}, perun.NewAPIErrInvalidArgument(err, session.ArgNamePayee, payments[i].Payee)
+			return PayChInfo{}, perun.NewAPIErrInvalidArgument(err, perun.ArgNamePayee, payments[i].Payee)
 		}
 		updates[i] = newUpdate(payerIdx, payeeIdx, idxOfCurrencyInBals, parsedAmount)
 	}
 
-	chInfo, apiErr := ch.SendChUpdate(pctx, func(state *pchannel.State) error {
+	chInfo, apiErr := ch.SendChUpdate(pctx, func(state *pchannel.State) {
 		for i := range updates {
 			updates[i](state)
 		}
-		return nil
 	})
 	return toPayChInfo(chInfo), apiErr
 }
@@ -169,7 +167,8 @@ func UnsubPayChUpdates(ch perun.ChAPI) perun.APIError {
 //
 // See session.RespondChUpdate for the list of errors returned by this API.
 func RespondPayChUpdate(pctx context.Context, ch perun.ChAPI, updateID string, accept bool) (
-	PayChInfo, perun.APIError) {
+	PayChInfo, perun.APIError,
+) {
 	chInfo, err := ch.RespondChUpdate(pctx, updateID, accept)
 	return toPayChInfo(chInfo), err
 }

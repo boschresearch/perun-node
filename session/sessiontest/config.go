@@ -18,7 +18,6 @@ package sessiontest
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
@@ -58,19 +57,19 @@ func NewConfigFileT(t *testing.T, config session.Config) string {
 // NewConfigFile creates a temporary file containing the given session configuration and
 // returns the path to it. It also registers a cleanup function on the passed test handler.
 func NewConfigFile(config interface{}) (string, error) {
-	tempFile, err := ioutil.TempFile("", "*.yaml")
+	tempFile, err := os.CreateTemp("", "*.yaml")
 	if err != nil {
 		return "", errors.Wrap(err, "creating temp file for config")
 	}
 	encoder := yaml.NewEncoder(tempFile)
 	if err := encoder.Encode(config); err != nil {
-		tempFile.Close()           // nolint: errcheck
-		os.Remove(tempFile.Name()) // nolint: errcheck
+		tempFile.Close()           //nolint:errcheck
+		os.Remove(tempFile.Name()) //nolint:errcheck
 		return "", errors.Wrap(err, "encoding config")
 	}
 	if err := encoder.Close(); err != nil {
-		tempFile.Close()           // nolint: errcheck
-		os.Remove(tempFile.Name()) // nolint: errcheck
+		tempFile.Close()           //nolint:errcheck
+		os.Remove(tempFile.Name()) //nolint:errcheck
 		return "", errors.Wrap(err, "closing encoder")
 	}
 	return tempFile.Name(), tempFile.Close()
@@ -131,13 +130,16 @@ func NewConfig(rng *rand.Rand, peerIDs ...perun.PeerID) (session.Config, error) 
 		IDProviderType: "local",
 		IDProviderURL:  idProviderURL,
 
+		FundingType: "local",
 		Adjudicator: adjudicator,
 		AssetETH:    assetETH,
+
+		WatcherType: "local",
 	}, nil
 }
 
 func newDatabaseDir() (string, error) {
-	databaseDir, err := ioutil.TempDir("", "")
+	databaseDir, err := os.MkdirTemp("", "")
 	if err != nil {
 		return "", errors.Wrap(err, "creating temp directory for database")
 	}

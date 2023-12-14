@@ -44,8 +44,8 @@ type Funder struct {
 
 // RegisterAssetERC20 wraps the RegisterAssetERC20 on the actual ETH funder
 // implementation with abstract types defined in go-perun core.
-func (f *Funder) RegisterAssetERC20(asset pwallet.Address, token pwallet.Address, onChainAcc pwallet.Address) bool {
-	assetAddr, ok := asset.(*pethwallet.Address)
+func (f *Funder) RegisterAssetERC20(asset pchannel.Asset, token pwallet.Address, onChainAcc pwallet.Address) bool {
+	assetAddr, ok := asset.(*pethchannel.Asset)
 	if !ok {
 		return false
 	}
@@ -58,8 +58,8 @@ func (f *Funder) RegisterAssetERC20(asset pwallet.Address, token pwallet.Address
 
 // IsAssetRegistered wraps the IsAssetRegistered on the actual ETH funder
 // implementation with abstract types defined in go-perun core.
-func (f *Funder) IsAssetRegistered(asset pwallet.Address) bool {
-	assetAddr, ok := asset.(*pethwallet.Address)
+func (f *Funder) IsAssetRegistered(asset pchannel.Asset) bool {
+	assetAddr, ok := asset.(*pethchannel.Asset)
 	if !ok {
 		return false
 	}
@@ -79,7 +79,7 @@ type ChainBackend struct {
 
 // NewFunder initializes and returns an instance of ethereum funder.
 func (cb *ChainBackend) NewFunder(assetETHAddr pwallet.Address, txSender pwallet.Address) perun.Funder {
-	assetETH := pethwallet.AsWalletAddr(pethwallet.AsEthAddr(assetETHAddr))
+	assetETH := pethchannel.NewAssetFromAddress(pethwallet.AsEthAddr(assetETHAddr))
 	txSenderAcc := accounts.Account{Address: pethwallet.AsEthAddr(txSender)}
 	funder := pethchannel.NewFunder(*cb.Cb)
 	// Registering unique assets on a newly initialized funder will always return true.
@@ -146,7 +146,8 @@ func (cb *ChainBackend) ValidateAssetETH(adjAddr, assetETHAddr pwallet.Address) 
 // contracts at the given addresses. TokenERC20 is the address of ERC20 token
 // contract.
 func (cb *ChainBackend) ValidateAssetERC20(adj, tokenERC20, assetERC20 pwallet.Address) (
-	symbol string, decimals uint8, _ error) {
+	symbol string, decimals uint8, _ error,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), cb.TxTimeout)
 	defer cancel()
 	var err error
@@ -185,7 +186,8 @@ func (cb *ChainBackend) DeployAssetETH(adjAddr, txSender pwallet.Address) (pwall
 
 // DeployPerunToken deploys the perun ERC20 token contract.
 func (cb *ChainBackend) DeployPerunToken(initAccs []pwallet.Address, initBal *big.Int, txSender pwallet.Address) (
-	pwallet.Address, error) {
+	pwallet.Address, error,
+) {
 	initAccsETH := make([]common.Address, len(initAccs))
 	for i := range initAccs {
 		initAccsETH[i] = pethwallet.AsEthAddr(initAccs[i])

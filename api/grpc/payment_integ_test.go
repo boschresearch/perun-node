@@ -60,9 +60,9 @@ func StartServer(t *testing.T, nodeCfg perun.NodeConfig, grpcPort string) {
 	nodeAPI, err := node.New(nodeCfg)
 	require.NoErrorf(t, err, "initializing nodeAPI")
 
-	t.Log("Started ListenAndServePayChAPI")
+	t.Log("Started grpc service")
 	go func() {
-		if err := grpc.ListenAndServePayChAPI(nodeAPI, grpcPort); err != nil {
+		if err := grpc.ServePaymentAPI(nodeAPI, grpcPort); err != nil {
 			t.Logf("server returned with error: %v", err)
 		}
 	}()
@@ -171,7 +171,7 @@ func Test_Integ_Role(t *testing.T) {
 				wg.Done()
 			}()
 			sub := SubPayChProposal(t, bobSessionID)
-			notif := ReadPayChProposalNotif(t, bobSessionID, sub, false)
+			notif := ReadPayChProposalNotif(t, sub, false)
 			RespondPayChProposal(t, bobSessionID, notif.Notify.ProposalID, true, false)
 			UnsubPayChProposal(t, bobSessionID, false)
 
@@ -220,7 +220,7 @@ func Test_Integ_Role(t *testing.T) {
 			wg.Done()
 		}()
 		sub := SubPayChProposal(t, aliceSessionID)
-		notif := ReadPayChProposalNotif(t, aliceSessionID, sub, false)
+		notif := ReadPayChProposalNotif(t, sub, false)
 		RespondPayChProposal(t, aliceSessionID, notif.Notify.ProposalID, false, false)
 		UnsubPayChProposal(t, aliceSessionID, false)
 
@@ -239,7 +239,7 @@ func Test_Integ_Role(t *testing.T) {
 			}()
 
 			sub := SubPayChUpdate(t, aliceSessionID, chID)
-			notif := ReadPayChUpdateNotif(t, aliceSessionID, chID, sub)
+			notif := ReadPayChUpdateNotif(t, sub)
 			assert.EqualValues(t, perun.ChUpdateTypeOpen, notif.Notify.Type)
 			RespondPayChUpdate(t, aliceSessionID, chID, notif.Notify.UpdateID, accept)
 			UnsubPayChUpdate(t, aliceSessionID, chID)
@@ -247,7 +247,7 @@ func Test_Integ_Role(t *testing.T) {
 			wg.Wait()
 		}
 
-		// nolint: govet	// it is okay to use unkeyed fields in Payment struct.
+		//nolint:govet	// it is okay to use unkeyed fields in Payment struct.
 		tests := []struct {
 			name     string
 			chID     string
@@ -297,17 +297,17 @@ func Test_Integ_Role(t *testing.T) {
 			wg.Add(2)
 			go func() {
 				sub := SubPayChUpdate(t, aliceSessionID, chID)
-				notif := ReadPayChUpdateNotif(t, aliceSessionID, chID, sub)
+				notif := ReadPayChUpdateNotif(t, sub)
 				assert.EqualValues(t, perun.ChUpdateTypeFinal, notif.Notify.Type)
 				RespondPayChUpdate(t, aliceSessionID, chID, notif.Notify.UpdateID, true)
-				notif = ReadPayChUpdateNotif(t, aliceSessionID, chID, sub)
+				notif = ReadPayChUpdateNotif(t, sub)
 				assert.EqualValues(t, perun.ChUpdateTypeClosed, notif.Notify.Type)
 
 				wg.Done()
 			}()
 			go func() {
 				sub := SubPayChUpdate(t, bobSessionID, chID)
-				notif := ReadPayChUpdateNotif(t, bobSessionID, chID, sub)
+				notif := ReadPayChUpdateNotif(t, sub)
 				assert.EqualValues(t, perun.ChUpdateTypeClosed, notif.Notify.Type)
 				RespondPayChUpdateExpectError(t, bobSessionID, chID, notif.Notify.UpdateID, true)
 
@@ -343,7 +343,7 @@ func Test_Integ_Role(t *testing.T) {
 		OpenPayCh(t, bobSessionID,
 			[]string{"ETH"}, []string{perun.OwnAlias, aliceAlias}, [][]string{{"1", "2"}}, true)
 		sub := SubPayChProposal(t, aliceSessionID)
-		ReadPayChProposalNotif(t, aliceSessionID, sub, true)
+		ReadPayChProposalNotif(t, sub, true)
 		RespondPayChProposal(t, aliceSessionID, "", false, true)
 		UnsubPayChProposal(t, aliceSessionID, true)
 	})
@@ -433,7 +433,7 @@ func AddPeerID(t *testing.T, sessionID string, peerID *pb.PeerID) {
 func OpenPayCh(t *testing.T, sessionID string, currencies, parts []string, bals [][]string, wantErr bool) string {
 	req := pb.OpenPayChReq{
 		SessionID: sessionID,
-		OpeningBalInfo: grpc.ToGrpcBalInfo(perun.BalInfo{
+		OpeningBalInfo: pb.FromBalInfo(perun.BalInfo{
 			Currencies: currencies,
 			Parts:      parts,
 			Bals:       bals,
@@ -463,8 +463,9 @@ func SubPayChProposal(t *testing.T, sessionID string) pb.Payment_API_SubPayChPro
 	return subClient
 }
 
-func ReadPayChProposalNotif(t *testing.T, sessionID string, sub pb.Payment_API_SubPayChProposalsClient,
-	wantErr bool) *pb.SubPayChProposalsResp_Notify_ {
+func ReadPayChProposalNotif(t *testing.T, sub pb.Payment_API_SubPayChProposalsClient,
+	wantErr bool,
+) *pb.SubPayChProposalsResp_Notify_ {
 	notifMsg, err := sub.Recv()
 
 	if wantErr {
@@ -518,7 +519,7 @@ func SendPayChUpdate(t *testing.T, sessionID, chID string, payments []payment.Pa
 	req := pb.SendPayChUpdateReq{
 		SessionID: sessionID,
 		ChID:      chID,
-		Payments:  grpc.ToGrpcPayments(payments),
+		Payments:  pb.FromPayments(payments),
 	}
 	resp, err := client.SendPayChUpdate(ctx, &req)
 	require.NoErrorf(t, err, "SendPayChUpdate")
@@ -542,8 +543,9 @@ func SubPayChUpdate(t *testing.T, sessionID, chID string) pb.Payment_API_SubPayC
 	return subClient
 }
 
-func ReadPayChUpdateNotif(t *testing.T, sessionID, chID string,
-	sub pb.Payment_API_SubPayChUpdatesClient) *pb.SubPayChUpdatesResp_Notify_ {
+func ReadPayChUpdateNotif(t *testing.T,
+	sub pb.Payment_API_SubPayChUpdatesClient,
+) *pb.SubPayChUpdatesResp_Notify_ {
 	notifMsg, err := sub.Recv()
 	require.NoErrorf(t, err, "subClient.Recv")
 	notif, ok := notifMsg.Response.(*pb.SubPayChUpdatesResp_Notify_)

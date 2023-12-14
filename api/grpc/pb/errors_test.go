@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package grpc_test
+package pb_test
 
 import (
 	"testing"
@@ -24,12 +24,6 @@ import (
 	"github.com/hyperledger-labs/perun-node"
 	"github.com/hyperledger-labs/perun-node/api/grpc/pb"
 )
-
-func Test_ChUpdateType(t *testing.T) {
-	assert.EqualValues(t, perun.ChUpdateTypeOpen, pb.SubPayChUpdatesResp_Notify_open)
-	assert.EqualValues(t, perun.ChUpdateTypeFinal, pb.SubPayChUpdatesResp_Notify_final)
-	assert.EqualValues(t, perun.ChUpdateTypeClosed, pb.SubPayChUpdatesResp_Notify_closed)
-}
 
 func Test_ErrorCategory(t *testing.T) {
 	assert.Equal(t, pb.ErrorCategory_ParticipantError, pb.ErrorCategory(perun.ParticipantError))

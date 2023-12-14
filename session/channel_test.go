@@ -108,9 +108,7 @@ func Test_SendChUpdate(t *testing.T) {
 		Bals:       [][]string{{"1", "2"}},
 	}
 	ourIdx := 0
-	noopUpdater := func(s *pchannel.State) error {
-		return nil
-	}
+	noopUpdater := func(s *pchannel.State) {}
 
 	t.Run("happy", func(t *testing.T) {
 		pch, _ := newMockPCh()
@@ -119,7 +117,7 @@ func Test_SendChUpdate(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(1))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(nil)
+		pch.On("Update", mock.Anything, mock.Anything).Return(nil)
 		gotChInfo, err := ch.SendChUpdate(context.Background(), noopUpdater)
 		require.NoError(t, err)
 		assert.NotZero(t, gotChInfo)
@@ -133,12 +131,12 @@ func Test_SendChUpdate(t *testing.T) {
 
 		_, err := ch.SendChUpdate(context.Background(), noopUpdater)
 
-		wantMessage := session.ErrChClosed.Error()
+		wantMessage := perun.ErrChClosed.Error()
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrFailedPreCondition, wantMessage)
 		assert.Nil(t, err.AddInfo())
 	})
 
-	t.Run("UpdateBy_PeerRequestTimedOut", func(t *testing.T) {
+	t.Run("Update_PeerRequestTimedOut", func(t *testing.T) {
 		timeout := responseTimeout.String()
 		peerRequestTimedOutError := pclient.RequestTimedOutError("some-error")
 		pch, _ := newMockPCh()
@@ -147,14 +145,14 @@ func Test_SendChUpdate(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(ourIdx))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(peerRequestTimedOutError)
+		pch.On("Update", mock.Anything, mock.Anything).Return(peerRequestTimedOutError)
 		_, err := ch.SendChUpdate(context.Background(), noopUpdater)
 
 		peruntest.AssertAPIError(t, err, perun.ParticipantError, perun.ErrPeerRequestTimedOut)
 		peruntest.AssertErrInfoPeerRequestTimedOut(t, err.AddInfo(), peerAlias, timeout)
 	})
 
-	t.Run("UpdateBy_RejectedByPeer", func(t *testing.T) {
+	t.Run("Update_RejectedByPeer", func(t *testing.T) {
 		reason := "some random reason"
 		peerRejectedError := pclient.PeerRejectedError{
 			ItemType: "channel update",
@@ -166,7 +164,7 @@ func Test_SendChUpdate(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(ourIdx))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(peerRejectedError)
+		pch.On("Update", mock.Anything, mock.Anything).Return(peerRejectedError)
 		_, err := ch.SendChUpdate(context.Background(), noopUpdater)
 
 		peruntest.AssertAPIError(t, err, perun.ParticipantError, perun.ErrPeerRejected)
@@ -221,7 +219,7 @@ func Test_SubUnsubChUpdate(t *testing.T) {
 	require.Error(t, err)
 
 	peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrResourceExists)
-	peruntest.AssertErrInfoResourceExists(t, err.AddInfo(), session.ResTypeUpdateSub, ch.ID())
+	peruntest.AssertErrInfoResourceExists(t, err.AddInfo(), perun.ResTypeUpdateSub, ch.ID())
 
 	// SubTest 3: UnSub successfully ==
 	err = ch.UnsubChUpdates()
@@ -232,14 +230,14 @@ func Test_SubUnsubChUpdate(t *testing.T) {
 	require.Error(t, err)
 
 	peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrResourceNotFound)
-	peruntest.AssertErrInfoResourceNotFound(t, err.AddInfo(), session.ResTypeUpdateSub, ch.ID())
+	peruntest.AssertErrInfoResourceNotFound(t, err.AddInfo(), perun.ResTypeUpdateSub, ch.ID())
 
 	t.Run("Sub_channelClosed", func(t *testing.T) {
 		ch := session.NewChForTest(
 			pch, currency.ETHSymbol, validOpeningBalInfo.Parts, responseTimeout, challengeDurSecs, false)
 		err = ch.SubChUpdates(dummyNotifier)
 
-		wantMessage := session.ErrChClosed.Error()
+		wantMessage := perun.ErrChClosed.Error()
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrFailedPreCondition, wantMessage)
 		assert.Nil(t, err.AddInfo())
 	})
@@ -248,7 +246,7 @@ func Test_SubUnsubChUpdate(t *testing.T) {
 			pch, currency.ETHSymbol, validOpeningBalInfo.Parts, responseTimeout, challengeDurSecs, false)
 		err = ch.UnsubChUpdates()
 
-		wantMessage := session.ErrChClosed.Error()
+		wantMessage := perun.ErrChClosed.Error()
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrFailedPreCondition, wantMessage)
 		assert.Nil(t, err.AddInfo())
 	})
@@ -269,7 +267,7 @@ func Test_HandleUpdate_Sub(t *testing.T) {
 	nonFinalState := makeState(t, updatedBalInfo, false)
 	finalState := makeState(t, updatedBalInfo, true)
 
-	t.Run("happy_HandleSub_nonFinal", func(t *testing.T) { //nolint: dupl
+	t.Run("happy_HandleSub_nonFinal", func(t *testing.T) { //nolint:dupl
 		ch := session.NewChForTest(
 			pch, currency.ETHSymbol, validOpeningBalInfo.Parts, responseTimeout, challengeDurSecs, true)
 
@@ -293,7 +291,7 @@ func Test_HandleUpdate_Sub(t *testing.T) {
 		assert.Eventually(t, notifRecieved, 2*time.Second, 100*time.Millisecond)
 	})
 
-	t.Run("happy_HandleSub_Final", func(t *testing.T) { //nolint: dupl
+	t.Run("happy_HandleSub_Final", func(t *testing.T) { //nolint:dupl
 		ch := session.NewChForTest(
 			pch, currency.ETHSymbol, validOpeningBalInfo.Parts, responseTimeout, challengeDurSecs, true)
 
@@ -441,7 +439,7 @@ func Test_HandleUpdate_Respond(t *testing.T) {
 
 		_, err := ch.RespondChUpdate(context.Background(), updateID, true)
 
-		wantMessage := session.ErrChClosed.Error()
+		wantMessage := perun.ErrChClosed.Error()
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrFailedPreCondition, wantMessage)
 		assert.Nil(t, err.AddInfo())
 	})
@@ -460,7 +458,7 @@ func Test_HandleUpdate_Respond(t *testing.T) {
 		_, err := ch.RespondChUpdate(context.Background(), unknownUpdateID, true)
 
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrResourceNotFound)
-		peruntest.AssertErrInfoResourceNotFound(t, err.AddInfo(), session.ResTypeUpdate, unknownUpdateID)
+		peruntest.AssertErrInfoResourceNotFound(t, err.AddInfo(), perun.ResTypeUpdate, unknownUpdateID)
 	})
 
 	t.Run("response_timeout_expired", func(t *testing.T) {
@@ -594,7 +592,7 @@ func Test_HandleUpdate_Respond(t *testing.T) {
 	})
 }
 
-// nolint: unparam
+//nolint:unparam
 func assertNotif(t *testing.T, notifs []perun.ChUpdateNotif, wantVersion uint64, wantExpiry int64) {
 	t.Helper()
 	require.Len(t, notifs, 1)
@@ -623,7 +621,7 @@ func Test_Close(t *testing.T) {
 		var finalizer perun.StateUpdater
 		pch.On("Idx").Return(pchannel.Index(peerIdx))
 		pch.On("State").Return(finalizedState)
-		pch.On("UpdateBy", mock.Anything, mock.MatchedBy(func(gotFinalizer perun.StateUpdater) bool {
+		pch.On("Update", mock.Anything, mock.MatchedBy(func(gotFinalizer perun.StateUpdater) bool {
 			finalizer = gotFinalizer
 			return true
 		})).Return(nil)
@@ -644,9 +642,9 @@ func Test_Close(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotZero(t, gotChInfo)
 
-		// == Part 2: Check if finalizer sent to UpdateBy marks the channel as final.
+		// == Part 2: Check if finalizer sent to Update marks the channel as final.
 		emptyState := pchannel.State{}
-		assert.NoError(t, finalizer(&emptyState))
+		finalizer(&emptyState)
 		assert.True(t, emptyState.IsFinal)
 
 		// == Part 3: Check if notification was received with correct values.
@@ -695,7 +693,7 @@ func Test_Close(t *testing.T) {
 		// Setup channel mock
 		pch.On("Idx").Return(pchannel.Index(peerIdx))
 		pch.On("State").Return(state)
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(assert.AnError)
+		pch.On("Update", mock.Anything, mock.Anything).Return(assert.AnError)
 		pch.On("Settle", mock.Anything, mock.Anything).Return(nil)
 		pch.On("Close").Return(nil).Run(func(args mock.Arguments) {
 			watcherSignal <- time.Now() // Signal the watcher to return when pch is closed.
@@ -763,7 +761,7 @@ func Test_Close(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(peerIdx))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(nil)
+		pch.On("Update", mock.Anything, mock.Anything).Return(nil)
 		pch.On("Settle", mock.Anything, mock.Anything).Return(assert.AnError)
 		pch.On("Close").Return(nil).Run(func(args mock.Arguments) {
 			watcherSignal <- time.Now() // Signal the watcher to return when pch is closed.
@@ -785,7 +783,7 @@ func Test_Close(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(peerIdx))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(nil)
+		pch.On("Update", mock.Anything, mock.Anything).Return(nil)
 		pch.On("Settle", mock.Anything, mock.Anything).Return(txTimedOutError)
 		pch.On("Close").Return(nil).Run(func(args mock.Arguments) {
 			watcherSignal <- time.Now() // Signal the watcher to return when pch is closed.
@@ -809,7 +807,7 @@ func Test_Close(t *testing.T) {
 
 		pch.On("Idx").Return(pchannel.Index(peerIdx))
 		pch.On("State").Return(makeState(t, validOpeningBalInfo, false))
-		pch.On("UpdateBy", mock.Anything, mock.Anything).Return(nil)
+		pch.On("Update", mock.Anything, mock.Anything).Return(nil)
 		pch.On("Settle", mock.Anything, mock.Anything).Return(chainNotReachableError)
 		pch.On("Close").Return(nil).Run(func(args mock.Arguments) {
 			watcherSignal <- time.Now() // Signal the watcher to return when pch is closed.
@@ -934,7 +932,7 @@ func Test_Close(t *testing.T) {
 		_, err := ch.Close(context.Background())
 		require.Error(t, err)
 
-		wantMessage := session.ErrChClosed.Error()
+		wantMessage := perun.ErrChClosed.Error()
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrFailedPreCondition, wantMessage)
 		assert.Nil(t, err.AddInfo())
 	})

@@ -21,7 +21,6 @@ package session_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
@@ -31,6 +30,8 @@ import (
 	"github.com/phayes/freeport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pperunioserializer "perun.network/go-perun/wire/perunio/serializer"
 
 	"github.com/hyperledger-labs/perun-node"
 	"github.com/hyperledger-labs/perun-node/blockchain/ethereum/ethereumtest"
@@ -114,7 +115,7 @@ func Test_Integ_New(t *testing.T) {
 	t.Run("invalidConfig_onChainAddr", func(t *testing.T) {
 		cfgCopy := cfg
 		cfgCopy.DatabaseDir = newDatabaseDir(t)
-		cfgCopy.User.OnChainAddr = "invalid-addr" //nolint: goconst	// it's okay to repeat this phrase.
+		cfgCopy.User.OnChainAddr = "invalid-addr" //nolint:goconst	// it's okay to repeat this phrase.
 		_, err := session.New(cfgCopy, currencies, contracts)
 		require.Error(t, err)
 		peruntest.AssertAPIError(t, err, perun.ClientError, perun.ErrInvalidConfig, "")
@@ -180,9 +181,9 @@ func Test_Integ_New(t *testing.T) {
 		listener, err := tcp.NewTCPBackend(1 * time.Second).NewListener(cfgCopy.User.CommAddr)
 		require.NoError(t, err)
 		go func() {
-			_, _ = listener.Accept() //nolint: errcheck		// no need to check error.
+			_, _ = listener.Accept(pperunioserializer.Serializer()) //nolint:errcheck		// no need to check error.
 		}()
-		defer listener.Close() //nolint: errcheck		// no need to check error.
+		defer listener.Close() //nolint:errcheck		// no need to check error.
 
 		_, apiErr := session.New(cfgCopy, currencies, contracts)
 		require.Error(t, apiErr)
@@ -260,9 +261,9 @@ func Test_Integ_Persistence(t *testing.T) {
 	t.Run("err_database_init", func(t *testing.T) {
 		prng := rand.New(rand.NewSource(ethereumtest.RandSeedForTestAccs))
 		cfg := sessiontest.NewConfigT(t, prng) // Get a session config with no peerIDs in the ID provider.
-		tempFile, err := ioutil.TempFile("", "")
+		tempFile, err := os.CreateTemp("", "")
 		require.NoError(t, err)
-		tempFile.Close() // nolint:errcheck
+		tempFile.Close() //nolint:errcheck
 		cfg.DatabaseDir = tempFile.Name()
 		contracts := ethereumtest.SetupContractsT(t, cfg.ChainURL, cfg.ChainID, cfg.OnChainTxTimeout, false)
 
@@ -285,7 +286,7 @@ Bob:
     comm_address: 127.0.0.1:5750
     comm_type: tcpip`
 
-	tempFile, err := ioutil.TempFile("", "")
+	tempFile, err := os.CreateTemp("", "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err = os.Remove(tempFile.Name()); err != nil {
@@ -300,7 +301,7 @@ Bob:
 
 func copyDirToTmp(t *testing.T, src string) (tempDirName string) {
 	var err error
-	tempDirName, err = ioutil.TempDir("", "")
+	tempDirName, err = os.MkdirTemp("", "")
 	require.NoError(t, err)
 	require.NoError(t, copyutil.Copy(src, tempDirName))
 	t.Cleanup(func() {
@@ -312,7 +313,7 @@ func copyDirToTmp(t *testing.T, src string) (tempDirName string) {
 }
 
 func newDatabaseDir(t *testing.T) (dir string) {
-	databaseDir, err := ioutil.TempDir("", "")
+	databaseDir, err := os.MkdirTemp("", "")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err := os.RemoveAll(databaseDir); err != nil {
